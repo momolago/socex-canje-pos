@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SOCEX · Prototipo Fase 0</title>
+<style>
+  :root{
+    --bg:#0b0f14; --panel:#121821; --panel2:#1a222e; --line:#2a3442;
+    --txt:#e6edf3; --mut:#8b98a5; --ok:#2ea043; --bad:#f85149; --warn:#d29922; --acc:#58a6ff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--txt);line-height:1.45}
+  header{padding:14px 18px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  header h1{font-size:16px;margin:0;letter-spacing:.5px}
+  header .tag{font-size:11px;color:var(--mut);border:1px solid var(--line);padding:2px 8px;border-radius:20px}
+  nav{display:flex;gap:6px;flex-wrap:wrap;padding:10px 18px;border-bottom:1px solid var(--line);background:var(--panel)}
+  nav button{background:transparent;border:1px solid var(--line);color:var(--mut);padding:7px 12px;border-radius:8px;cursor:pointer;font-size:13px}
+  nav button.on{background:var(--acc);color:#06121f;border-color:var(--acc);font-weight:600}
+  main{padding:18px;max-width:920px;margin:0 auto}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:14px}
+  .card h2{margin:0 0 10px;font-size:14px;text-transform:uppercase;letter-spacing:1px;color:var(--mut)}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px}
+  .stat{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:12px}
+  .stat .k{font-size:11px;color:var(--mut);text-transform:uppercase}
+  .stat .v{font-size:20px;font-weight:700;margin-top:4px}
+  .stat .v.ok{color:var(--ok)} .stat .v.bad{color:var(--bad)} .stat .v.warn{color:var(--warn)}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line)}
+  th{color:var(--mut);font-weight:600;font-size:11px;text-transform:uppercase}
+  .pill{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600}
+  .pill.ok{background:rgba(46,160,67,.15);color:var(--ok)}
+  .pill.bad{background:rgba(248,81,73,.15);color:var(--bad)}
+  .pill.warn{background:rgba(210,153,34,.15);color:var(--warn)}
+  .pill.acc{background:rgba(88,166,255,.15);color:var(--acc)}
+  .btn{background:var(--acc);color:#06121f;border:none;padding:10px 16px;border-radius:8px;font-weight:600;cursor:pointer;font-size:13px}
+  .btn.sec{background:transparent;color:var(--txt);border:1px solid var(--line)}
+  .btn:disabled{opacity:.4;cursor:not-allowed}
+  .log{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;background:#070a0e;border:1px solid var(--line);border-radius:8px;padding:10px;max-height:220px;overflow:auto;white-space:pre-wrap}
+  .log .t{color:var(--mut)} .log .ok{color:var(--ok)} .log .bad{color:var(--bad)} .log .warn{color:var(--warn)}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  .muted{color:var(--mut);font-size:12px}
+  .big{font-size:28px;font-weight:800}
+  .locked{opacity:.55}
+  details{margin-top:8px}
+  summary{cursor:pointer;color:var(--acc);font-size:12px}
+</style>
+</head>
+<body>
+<header>
+  <h1>SOCEX</h1>
+  <span class="tag">Prototipo Fase 0 · canje en mesón</span>
+  <span class="tag">No es PSP · no cobra · no toca POS</span>
+</header>
+<nav id="nav"></nav>
+<main id="app"></main>
+<script>
+const CASE = { ticket:40000, loyalty:30000, bank:10000, ttl:180 };
+const S = {
+  saldo:30000, state:'AVAILABLE', holdUntil:0, burned:0, log:[],
+  voucher:null, refundRequested:false, labCase:null
+};
+const SCREENS = ['briefing','wallet','meson','kernel','comercio','lab'];
+const LABELS = {briefing:'Briefing',wallet:'Wallet socio',meson:'Mesón cajero',kernel:'Kernel',comercio:'Comercio / S3',lab:'Laboratorio'};
+
+function now(){return Math.floor(Date.now()/1000);}
+function fmt(n){return '$'+n.toLocaleString('es-CL');}
+function addLog(msg,cls=''){S.log.unshift({t:new Date().toLocaleTimeString('es-CL'),msg,cls});if(S.log.length>40)S.log.pop();render();}
+function setState(st){S.state=st;addLog('Estado → '+st, st==='BURNED'?'ok':st==='ROLLBACK'||st==='EXPIRED'?'bad':'warn');}
+
+function tick(){
+  if(S.state==='HOLD' && now()>=S.holdUntil){ setState('EXPIRED'); S.saldo+=CASE.loyalty; addLog('TTL vencido: HOLD liberado, saldo restaurado','bad'); }
+  render();
+}
+setInterval(tick,1000);
+
+function nav(){
+  const n=document.getElementById('nav');
+  n.innerHTML=SCREENS.map(s=>`<button data-s="${s}" class="${S._screen===s?'on':''}">${LABELS[s]}</button>`).join('');
+  n.querySelectorAll('button').forEach(b=>b.onclick=()=>{S._screen=b.dataset.s;render();});
+}
+
+function briefing(){
+  return `<div class="card"><h2>Veredicto S4</h2>
+  <p>Dual-tender en mesón: una pata de lealtad (S7 closed-loop, puntos = pasivo del comercio) + una pata bancaria. El total <b>${fmt(CASE.ticket)}</b> no se edita. Campo 4 bloqueado.</p>
+  <p class="muted">S1–S9: S4 dual-tender ✓ · S7 closed-loop ✓ · S5 BaaS (Ley 20.950) = 6–12 meses · S9 factura espejo = prohibida · S3 reembolso solo lo pide el comercio al operador.</p></div>
+  <div class="card"><h2>Caso tipo</h2>
+  <table><tr><th>Campo</th><th>Valor</th><th>Editable</th></tr>
+  <tr><td>Ticket POS</td><td>${fmt(CASE.ticket)}</td><td class="locked">Bloqueado (Campo 4)</td></tr>
+  <tr><td>Canje lealtad</td><td>${fmt(CASE.loyalty)}</td><td>Sí</td></tr>
+  <tr><td>Cupo tarjeta</td><td>${fmt(CASE.bank)}</td><td>Sí</td></tr>
+  <tr><td>TTL HOLD</td><td>${CASE.ttl} s</td><td>Sí</td></tr></table></div>
+  <div class="card"><h2>Invariantes</h2>
+  <ul class="muted" style="margin:0;padding-left:18px">
+  <li>RECHAZADO (71) ≠ «Boleta no emitida (51)» Res. 176 SII.</li>
+  <li>Voucher documenta ${fmt(CASE.ticket)} (Res. 176), no ${fmt(CASE.bank)}.</li>
+  <li>No existe acción «transferir al socio». HOLD ≠ dinero libre.</li>
+  <li>Si pata B = 51: void same-day de pata A y HOLD → ROLLBACK.</li>
+  <li>NCG 498: el adquirente no recibe ID de socio + saldo.</li></ul></div>`;
+}
+
+function wallet(){
+  const avail = S.state==='AVAILABLE';
+  return `<div class="card"><h2>Wallet socio</h2>
+  <div class="grid">
+    <div class="stat"><div class="k">Saldo</div><div class="v ${avail?'ok':'warn'}">${fmt(S.saldo)}</div></div>
+    <div class="stat"><div class="k">Estado</div><div class="v"><span class="pill ${S.state==='AVAILABLE'?'ok':S.state==='HOLD'?'warn':S.state==='BURNED'?'acc':'bad'}">${S.state}</span></div></div>
+    <div class="stat"><div class="k">TTL restante</div><div class="v">${S.state==='HOLD'?Math.max(0,S.holdUntil-now())+'s':'-'}</div></div>
+    <div class="stat"><div class="k">Quemado</div><div class="v">${fmt(S.burned)}</div></div>
+  </div>
+  <div class="row" style="margin-top:14px">
+    <button class="btn" id="pedir" ${avail?'':'disabled'}>Pedir canje ${fmt(CASE.loyalty)} (AVAILABLE → HOLD)</button>
+    <button class="btn sec" id="reset">Reset</button>
+  </div>
+  <p class="muted">DPAN Visa prepago (simulado): 4XXX-XXXX-XXXX-7781 · QR de socio activo.</p></div>`;
+}
+
+function meson(){
+  const hold = S.state==='HOLD';
+  return `<div class="card"><h2>Mesón cajero · menú nativo «Pago dividido»</h2>
+  <div class="grid">
+    <div class="stat"><div class="k">Total (Campo 4)</div><div class="v locked">${fmt(CASE.ticket)}</div></div>
+    <div class="stat"><div class="k">Pata A · lealtad</div><div class="v">${fmt(CASE.loyalty)}</div></div>
+    <div class="stat"><div class="k">Pata B · banco</div><div class="v">${fmt(CASE.bank)}</div></div>
+  </div>
+  <div class="row" style="margin-top:14px">
+    <button class="btn sec" id="single" ${hold?'':'disabled'}>Cobrar ${fmt(CASE.ticket)} en una sola pata</button>
+    <button class="btn" id="dual" ${hold?'':'disabled'}>Dual-tender: A ${fmt(CASE.loyalty)} + B ${fmt(CASE.bank)}</button>
+  </div>
+  <p class="muted">Single-tender sobre cupo ${fmt(CASE.bank)} → RECHAZADO (71) · Field 39 = 51. Dual-tender con HOLD activo → 00 + 00 y voucher ${fmt(CASE.ticket)}.</p></div>`;
+}
+
+function kernel(){
+  return `<div class="card"><h2>Kernel · máquina de estados</h2>
+  <div class="grid">
+    <div class="stat"><div class="k">AVAILABLE</div><div class="v ok">saldo libre</div></div>
+    <div class="stat"><div class="k">HOLD (TTL)</div><div class="v warn">reserva atómica</div></div>
+    <div class="stat"><div class="k">BURNED</div><div class="v acc">canje cerrado</div></div>
+    <div class="stat"><div class="k">ROLLBACK / EXPIRED</div><div class="v bad">libera saldo</div></div>
+  </div>
+  <p class="muted" style="margin-top:10px">LR = 0. Sin DALE no hay transferencia. HOLD no es dinero de libre disposición.</p>
+  <details><summary>Transiciones</summary>
+  AVAILABLE → HOLD (pedir canje) · HOLD → BURNED (dual-tender 00+00) · HOLD → ROLLBACK (pata B = 51, void same-day) · HOLD → EXPIRED (TTL) · cualquier → AVAILABLE (reset).</details></div>`;
+}
+
+function comercio(){
+  return `<div class="card"><h2>Comercio / S3</h2>
+  <p>El comercio <b>pide</b> reembolso al operador. SOCEX registra; no ejecuta TEF. Oficio SII 2729 (publicidad, no lealtad multi-comercio).</p>
+  <div class="row" style="margin-top:12px">
+    <button class="btn sec" id="refund" ${S.state==='BURNED'&&!S.refundRequested?'':'disabled'}>Pedir reembolso al operador (S3)</button>
+    <span class="pill ${S.refundRequested?'ok':'warn'}">${S.refundRequested?'Registrado':'Pendiente'}</span>
+  </div></div>`;
+}
+
+function lab(){
+  const cases=[
+    {id:'C1',t:'Trama ${fmt(CASE.ticket)} contra cupo ${fmt(CASE.bank)}',r:'Field 39 = 51 · RECHAZADO (71)'},
+    {id:'C2',t:'HOLD + pata A DPAN ${fmt(CASE.loyalty)} (00) + pata B banco ${fmt(CASE.bank)} (00)',r:'voucher ${fmt(CASE.ticket)} + BURN'},
+    {id:'C4',t:'Canje ${fmt(5000)} + remanente ${fmt(35000)}',r:'51 en pata B + void + ROLLBACK'}
+  ];
+  return `<div class="card"><h2>Laboratorio</h2>
+  <div class="row">${cases.map(c=>`<button class="btn sec" data-c="${c.id}">${c.id}</button>`).join('')}<button class="btn sec" id="reset2">Reset</button></div>
+  <div id="labout" class="muted" style="margin-top:12px">Elegí un caso.</div></div>`;
+}
+
+function render(){
+  nav();
+  const app=document.getElementById('app');
+  const s=S._screen||'briefing';
+  app.innerHTML = ({briefing,wallet,meson,kernel,comercio,lab})[s]() +
+    `<div class="card"><h2>Log</h2><div class="log" id="log">${S.log.map(l=>`<span class="t">[${l.t}]</span> <span class="${l.cls}">${l.msg}</span>`).join('\n')||'—'}</div></div>`;
+  bind();
+}
+
+function bind(){
+  const g=id=>document.getElementById(id);
+  if(g('pedir'))g('pedir').onclick=()=>{S.saldo-=CASE.loyalty;S.holdUntil=now()+CASE.ttl;setState('HOLD');addLog(`HOLD ${fmt(CASE.loyalty)} por ${CASE.ttl}s`,'warn');};
+  if(g('reset')||g('reset2')){const r=g('reset')||g('reset2');r.onclick=reset;}
+  if(g('single'))g('single').onclick=()=>{addLog(`Trama ${fmt(CASE.ticket)} · cupo ${fmt(CASE.bank)} → RECHAZADO (71) · Field 39 = 51`,'bad');S.labCase='C1';};
+  if(g('dual'))g('dual').onclick=()=>{S.burned+=CASE.loyalty;S.saldo=0;S.voucher={total:CASE.ticket,a:CASE.loyalty,b:CASE.bank};setState('BURNED');addLog(`Dual-tender OK · voucher ${fmt(CASE.ticket)} (A ${fmt(CASE.loyalty)}+B ${fmt(CASE.bank)})`,'ok');};
+  if(g('refund'))g('refund').onclick=()=>{S.refundRequested=true;addLog('S3: pedido de reembolso registrado. SOCEX no ejecuta TEF.','acc');render();};
+  document.querySelectorAll('[data-c]').forEach(b=>b.onclick=()=>runLab(b.dataset.c));
+}
+
+function runLab(id){
+  const out=document.getElementById('labout');
+  if(id==='C1'){out.innerHTML=`<span class="bad">C1 → Field 39 = 51 · RECHAZADO (71). Una trama de ${fmt(CASE.ticket)} contra cupo ${fmt(CASE.bank)} colapsa. No hay boleta.</span>`;addLog('Lab C1: 51 confirmado','bad');}
+  else if(id==='C2'){reset();S.saldo-=CASE.loyalty;S.holdUntil=now()+CASE.ttl;setState('HOLD');S.burned+=CASE.loyalty;S.voucher={total:CASE.ticket,a:CASE.loyalty,b:CASE.bank};setState('BURNED');out.innerHTML=`<span class="ok">C2 → HOLD + pata A ${fmt(CASE.loyalty)} (00) + pata B ${fmt(CASE.bank)} (00) → voucher ${fmt(CASE.ticket)} + BURNED.</span>`;addLog('Lab C2: dual-tender 00+00','ok');}
+  else if(id==='C4'){reset();S.saldo-=5000;S.holdUntil=now()+CASE.ttl;setState('HOLD');addLog('Lab C4: canje 5000, remanente 35000 → 51 pata B','warn');out.innerHTML=`<span class="warn">C4 → 51 en pata B. Void same-day de pata A + HOLD → ROLLBACK. Saldo restaurado.</span>`;S.saldo+=5000;setState('ROLLBACK');}
+  render();
+}
+
+function reset(){S.saldo=CASE.loyalty;S.state='AVAILABLE';S.holdUntil=0;S.burned=0;S.voucher=null;S.refundRequested=false;S.labCase=null;addLog('Reset · AVAILABLE','acc');render();}
+
+S._screen='briefing';
+addLog('SOCEX Fase 0 listo. Caso: ticket '+fmt(CASE.ticket)+' · lealtad '+fmt(CASE.loyalty)+' · banco '+fmt(CASE.bank),'acc');
+render();
+</script>
+</body>
+</html>
